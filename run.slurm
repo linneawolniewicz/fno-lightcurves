@@ -19,7 +19,9 @@
 
 # Load python profile, then call python script passing SLURM_ARRAY_TASK_ID as an argument.
 source ~/profiles/auto.profile
-source activate fno
+# source activate fno
+
+conda activate fno_no_cuda
 
 # use this command to run a python script
 # python fno_1d_classification.py 
