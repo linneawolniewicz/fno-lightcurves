@@ -1,2 +1,4 @@
 raw.githubusercontent.com/
 logs/
+lightning_logs/
+__pycache__/
