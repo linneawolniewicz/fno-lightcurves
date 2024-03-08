@@ -1,9 +1,19 @@
 # Imports
 from lightning import LightningModule
+import math
 import torch
-from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR, ExponentialLR
+from torch.optim.lr_scheduler import LambdaLR, SequentialLR, ReduceLROnPlateau, CosineAnnealingLR, ExponentialLR, CosineAnnealingWarmRestarts
 import torch.nn as nn
 import torch.nn.functional as F
+
+# Define a linear warm up schedule
+def LinearWarmup(optimizer, warmup_epochs=5, warmup_start_lr=1e-6, warmup_end_lr=1e-2):
+    def lr_lambda(epoch):
+        if epoch < warmup_epochs:
+            return (warmup_end_lr - warmup_start_lr) / warmup_epochs * epoch + warmup_start_lr
+        else:
+            return warmup_end_lr
+    return LambdaLR(optimizer, lr_lambda)
 
 class SpectralConv1d(nn.Module):
     def __init__(self,
@@ -180,7 +190,17 @@ class FNOClassifier(LightningModule):
         if self.scheduler == "reducelronplateau":
             scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6)
         elif self.scheduler == "cosineannealinglr":
-            scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
+            scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
+        elif self.scheduler == "cosineannealingwarmrestarts":
+            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-6)
+        elif self.scheduler == "linearwarmupcosineannealingwarmrestarts":
+            warmup_epochs=5
+            scheduler = SequentialLR(optimizer, schedulers=[
+                LinearWarmup(optimizer, warmup_epochs=warmup_epochs, warmup_start_lr=1e-6, warmup_end_lr=1e-2),
+                CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-6)
+                ],
+                milestones=[warmup_epochs]
+            )
         else:
             scheduler = ExponentialLR(optimizer, gamma=0.95)
         
