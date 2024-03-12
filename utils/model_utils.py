@@ -10,7 +10,7 @@ import torch.nn.functional as F
 def LinearWarmup(optimizer, warmup_epochs=5, warmup_start_lr=1e-6, warmup_end_lr=1e-2):
     def lr_lambda(epoch):
         if epoch < warmup_epochs:
-            return (warmup_end_lr - warmup_start_lr) / warmup_epochs * epoch + warmup_start_lr
+            return (warmup_end_lr - warmup_start_lr) / (warmup_epochs - 1) * epoch + warmup_start_lr
         else:
             return warmup_end_lr
     return LambdaLR(optimizer, lr_lambda)
@@ -81,10 +81,10 @@ class FNOClassifier(LightningModule):
         self.scheduler = scheduler
         self.momentum = momentum
         self.num_channels = len(channels)
-        self.loss = nn.CrossEntropyLoss()
+        self.loss = nn.BCELoss()
         self.add_noise = add_noise
 
-        self.example_input_array = torch.rand(16, 1, 500)
+        self.example_input_array = torch.rand(32, 1, 500)
 
         for i in range(self.num_channels):
             if i == 0:
@@ -106,7 +106,9 @@ class FNOClassifier(LightningModule):
 
         self.dropout = nn.Dropout(p_dropout)
 
-        self.fc = nn.Linear(channels[-1] * int((500/pooling)), 2) # output number of channels of final fno_block * (3rd input dimension 500 / maxpool size)
+        self.fc = nn.Linear(channels[-1] * int((500/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension 500 / maxpool size)
+        self.fc.weight.data.fill_(float(0.5))
+
 
     def forward(self, x):
         for i in range(self.num_channels):
@@ -121,62 +123,62 @@ class FNOClassifier(LightningModule):
             x = x + noise
 
         x = self.dropout(x) # dropping out seems to help a little, but not to the extent we need it to 
+
         x = self.fc(x)
+        x = F.sigmoid(x)
+        x = x.squeeze(1)
 
         return x    
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        x = self.forward(x)
+        preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(x, y) # No need for softmax, as it is included in nn.CrossEntropyLoss
+        loss = self.loss(preds, y.float()) # No need for softmax, as it is included in nn.CrossEntropyLoss
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # Log the accuracy
-        logits = F.softmax(x, dim=1)
-        preds = torch.argmax(logits, dim=1)
-        acc = (preds == y).float().mean()
+        binary_preds = (preds > 0.5).float()
+        acc = (binary_preds == y).float().mean()
         self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True)
 
         # collapse flag 
-        collapse_flg = torch.unique(logits).size(dim=0)
+        collapse_flg = torch.unique(preds).size(dim=0)
         self.log("collapse_flg_train", collapse_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
 
         return loss
     
     def validation_step(self, batch, batch_idx):
         x, y = batch
-        x = self.forward(x)
+        preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(x, y)
+        loss = self.loss(preds, y.float())
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         
         # Log the accuracy
-        logits = F.softmax(x, dim=1)
-        preds = torch.argmax(logits, dim=1)
-        acc = (preds == y).float().mean()
+        binary_preds = (preds > 0.5).float()
+        acc = (binary_preds == y).float().mean()
         self.log("val_acc", acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # collapse flag 
-        collapse_flg = torch.unique(logits).size(dim=0)
+        collapse_flg = torch.unique(preds).size(dim=0)
         self.log("collapse_flg_val", collapse_flg, sync_dist=True, on_epoch=True, prog_bar=True)
 
         return loss
     
     def test_step(self, batch, batch_idx):
         x, y = batch
-        x = self.forward(x)
+        preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(x, y)
+        loss = self.loss(preds, y.float())
         self.log("test_loss", loss)
 
         # Log the accuracy
-        logits = F.softmax(x, dim=1)
-        preds = torch.argmax(logits, dim=1)
-        acc = (preds == y).float().mean()
+        binary_preds = (preds > 0.5).float()
+        acc = (binary_preds == y).float().mean()
         self.log("test_acc", acc)
 
         return loss
@@ -188,16 +190,16 @@ class FNOClassifier(LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         if self.scheduler == "reducelronplateau":
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-7)
         elif self.scheduler == "cosineannealinglr":
             scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
         elif self.scheduler == "cosineannealingwarmrestarts":
-            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-6)
+            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=3, eta_min=1e-6)
         elif self.scheduler == "linearwarmupcosineannealingwarmrestarts":
             warmup_epochs=5
             scheduler = SequentialLR(optimizer, schedulers=[
                 LinearWarmup(optimizer, warmup_epochs=warmup_epochs, warmup_start_lr=1e-6, warmup_end_lr=1e-2),
-                CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2, eta_min=1e-6)
+                CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=3, eta_min=1e-6)
                 ],
                 milestones=[warmup_epochs]
             )
