@@ -71,6 +71,7 @@ class FNOClassifier(LightningModule):
                  scheduler="reducelronplateau", 
                  momentum=0.9,
                  pool_type="max",
+                 seq_length=500,
                  p_dropout=0,
                  add_noise=False
         ):
@@ -84,7 +85,7 @@ class FNOClassifier(LightningModule):
         self.loss = nn.BCELoss()
         self.add_noise = add_noise
 
-        self.example_input_array = torch.rand(32, 1, 500)
+        self.example_input_array = torch.rand(32, 1, seq_length)
 
         for i in range(self.num_channels):
             if i == 0:
@@ -106,7 +107,8 @@ class FNOClassifier(LightningModule):
 
         self.dropout = nn.Dropout(p_dropout)
 
-        self.fc = nn.Linear(channels[-1] * int((500/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension 500 / maxpool size)
+        # Remember to change 500 to 400 if using RandomSample data augmentation
+        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension 500 / maxpool size)
         self.fc.weight.data.fill_(float(0.5))
 
 
@@ -125,6 +127,8 @@ class FNOClassifier(LightningModule):
         x = self.dropout(x) # dropping out seems to help a little, but not to the extent we need it to 
 
         x = self.fc(x)
+        x = self.dropout(x)
+        
         x = F.sigmoid(x)
         x = x.squeeze(1)
 
@@ -204,6 +208,6 @@ class FNOClassifier(LightningModule):
                 milestones=[warmup_epochs]
             )
         else:
-            scheduler = ExponentialLR(optimizer, gamma=0.95)
+            scheduler = ExponentialLR(optimizer, gamma=0.98)
         
         return [optimizer], [{"scheduler": scheduler, "monitor": "train_loss"}]
