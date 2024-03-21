@@ -127,7 +127,6 @@ class FNOClassifier(LightningModule):
         x = self.dropout(x) # dropping out seems to help a little, but not to the extent we need it to 
 
         x = self.fc(x)
-        x = self.dropout(x)
         
         x = F.sigmoid(x)
         x = x.squeeze(1)
