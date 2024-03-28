@@ -7,9 +7,9 @@
 ##SBATCH --nodelist=gpu-0008
 
 #BATCH --gres=gpu:1
-#SBATCH --cpus-per-task=3
+#SBATCH --cpus-per-task=6 ## 5 cores per task
 #SBATCH --mem=36gb ## max amount of memory per node you require
-#SBATCH --time=14-00:00:00 ## time format is DD-HH:MM:SS, 3day max on kill-shared, 7day max on exclusive-long, 14day max on sadow, 30day max on koa
+#SBATCH --time=30-00:00:00 ## time format is DD-HH:MM:SS, 3day max on kill-shared, 7day max on exclusive-long, 14day max on sadow, 30day max on koa
 
 #SBATCH --job-name=fno
 #SBATCH --output=job.out
@@ -28,5 +28,5 @@ source activate fno
 # jupyter nbconvert --execute --clear-output fno_1d_classification.ipynb 
 
 # Another command to create a .py script, then run that from a ipynb:
-# jupyter nbconvert fno_1d_classification.ipynb --to python
-python fno_1d_classification.py
+# jupyter nbconvert fno_signal_classification.ipynb --to python
+python fno_signal_classification.py

@@ -193,16 +193,16 @@ class FNOClassifier(LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         if self.scheduler == "reducelronplateau":
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-7)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.2, patience=20, min_lr=1e-7)
         elif self.scheduler == "cosineannealinglr":
-            scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-6)
+            scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
         elif self.scheduler == "cosineannealingwarmrestarts":
-            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=3, eta_min=1e-6)
+            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=8, eta_min=1e-7)
         elif self.scheduler == "linearwarmupcosineannealingwarmrestarts":
             warmup_epochs=5
             scheduler = SequentialLR(optimizer, schedulers=[
-                LinearWarmup(optimizer, warmup_epochs=warmup_epochs, warmup_start_lr=1e-6, warmup_end_lr=1e-2),
-                CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=3, eta_min=1e-6)
+                LinearWarmup(optimizer, warmup_epochs=warmup_epochs, warmup_start_lr=1e-6, warmup_end_lr=1e-3),
+                CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=8, eta_min=1e-7)
                 ],
                 milestones=[warmup_epochs]
             )
