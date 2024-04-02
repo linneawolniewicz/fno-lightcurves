@@ -2,18 +2,10 @@
 from lightning import LightningModule
 import math
 import torch
-from torch.optim.lr_scheduler import LambdaLR, SequentialLR, ReduceLROnPlateau, CosineAnnealingLR, ExponentialLR, CosineAnnealingWarmRestarts
+import neuralop
+from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau, CosineAnnealingLR, ExponentialLR, CosineAnnealingWarmRestarts
 import torch.nn as nn
 import torch.nn.functional as F
-
-# Define a linear warm up schedule
-def LinearWarmup(optimizer, warmup_epochs=5, warmup_start_lr=1e-6, warmup_end_lr=1e-2):
-    def lr_lambda(epoch):
-        if epoch < warmup_epochs:
-            return (warmup_end_lr - warmup_start_lr) / (warmup_epochs - 1) * epoch + warmup_start_lr
-        else:
-            return warmup_end_lr
-    return LambdaLR(optimizer, lr_lambda)
 
 class SpectralConv1d(nn.Module):
     def __init__(self,
@@ -28,9 +20,15 @@ class SpectralConv1d(nn.Module):
         self.modes = modes
         self.debug = debug
 
+        # Initialize weights
         self.weights = torch.empty(in_channels, out_channels, self.modes, dtype=torch.cfloat)
         nn.init.xavier_normal_(self.weights, gain=1.0)
         self.weights = nn.Parameter(self.weights)
+
+        # Intialize bias
+        self.bias = torch.empty(out_channels, dtype=torch.float)
+        nn.init.constant_(self.bias, 0.0)
+        self.bias = nn.Parameter(self.bias)
 
     def forward(self, x):
         batchsize = x.shape[0]
@@ -45,7 +43,10 @@ class SpectralConv1d(nn.Module):
             self.compl_mul1d(x_ft[:, :, :self.modes], self.weights)
 
         #Return to physical space
-        out = torch.fft.irfft(out_ft)
+        out = torch.fft.irfft(out_ft, n=x.size(-1))
+
+        # Add bias
+        out = out + self.bias.view(1, -1, 1)
 
         if self.debug:
             print(f"Shape, mean, median, and mode of x: {x.shape}, {x.mean()}, {x.median()}, {x.mode()}")
@@ -60,7 +61,6 @@ class SpectralConv1d(nn.Module):
         # (batch, in_channel, x), (in_channel, out_channel, x) -> (batch, out_channel, x)
         return torch.einsum("bix,iox->box", input, weights)
 
-
 class FNOClassifier(LightningModule):
     def __init__(self, 
                  modes, 
@@ -72,6 +72,7 @@ class FNOClassifier(LightningModule):
                  momentum=0.9,
                  pool_type="max",
                  seq_length=500,
+                 proj_dim=128,
                  p_dropout=0,
                  add_noise=False
         ):
@@ -82,14 +83,26 @@ class FNOClassifier(LightningModule):
         self.scheduler = scheduler
         self.momentum = momentum
         self.num_channels = len(channels)
+        self.proj_dim = proj_dim
         self.loss = nn.BCELoss()
         self.add_noise = add_noise
-
         self.example_input_array = torch.rand(32, 1, seq_length)
 
+        # Projection layer
+        self.project = nn.Sequential(
+            nn.Linear(seq_length, proj_dim * seq_length),
+            nn.Dropout(p_dropout)
+        )
+        
+        # Initialize the linear layer with Xavier normal initialization
+        for module in self.project.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_normal_(module.weight)
+
+        # FNO layers
         for i in range(self.num_channels):
             if i == 0:
-                in_channels = 1
+                in_channels = proj_dim
             else:
                 in_channels = channels[i-1]
 
@@ -97,37 +110,52 @@ class FNOClassifier(LightningModule):
 
             setattr(self, f"fno_layer_{i}", nn.Sequential(
                 SpectralConv1d(in_channels, out_channels, modes),
+                # neuralop.layers.spectral_convolution.SpectralConv1d(in_channels, out_channels, modes),
                 nn.BatchNorm1d(out_channels)
             ))
         
+        # Pooling layer
         if pool_type == "max":
             self.pool = nn.MaxPool1d(pooling)
         else:
             self.pool = nn.AvgPool1d(pooling)
 
+        # Dropout layer
         self.dropout = nn.Dropout(p_dropout)
 
-        # Remember to change 500 to 400 if using RandomSample data augmentation
-        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension 500 / maxpool size)
+        # Fully connected layer for final classification
+        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
         self.fc.weight.data.fill_(float(0.5))
 
 
     def forward(self, x):
+        # Project
+        x = x.float()
+        x = self.project(x)
+        x = x.view(x.size(0), self.proj_dim, -1)
+        x = x.permute(0, 1, 2)
+
+        # FNO layers
         for i in range(self.num_channels):
             x = getattr(self, f"fno_layer_{i}")(x)
-            x = F.tanh(x)
+            x = F.relu(x)
 
+        # Pool
         x = self.pool(x)
         x = x.view(x.size(0), -1)
 
+        # Add noise
         if self.add_noise:
             noise = torch.randn_like(x)
             x = x + noise
 
-        x = self.dropout(x) # dropping out seems to help a little, but not to the extent we need it to 
+        # Dropout
+        x = self.dropout(x)
 
+        # Final classification layer
         x = self.fc(x)
         
+        # Sigmoid activation
         x = F.sigmoid(x)
         x = x.squeeze(1)
 
@@ -150,6 +178,12 @@ class FNOClassifier(LightningModule):
         collapse_flg = torch.unique(preds).size(dim=0)
         self.log("collapse_flg_train", collapse_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
 
+        # mean, median, and mode flag
+        mean_flg = preds.mean().item()
+        std_flag = preds.std().item()
+        self.log("mean_flg_train", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("std_flag_train", std_flag, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -168,6 +202,12 @@ class FNOClassifier(LightningModule):
         # collapse flag 
         collapse_flg = torch.unique(preds).size(dim=0)
         self.log("collapse_flg_val", collapse_flg, sync_dist=True, on_epoch=True, prog_bar=True)
+
+        # mean, median, and mode flag
+        mean_flg = preds.mean().item()
+        std_flg = preds.std().item()
+        self.log("mean_flg_val", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("std_flg_val", std_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
 
         return loss
     
@@ -197,15 +237,9 @@ class FNOClassifier(LightningModule):
         elif self.scheduler == "cosineannealinglr":
             scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
         elif self.scheduler == "cosineannealingwarmrestarts":
-            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=8, eta_min=1e-7)
-        elif self.scheduler == "linearwarmupcosineannealingwarmrestarts":
-            warmup_epochs=5
-            scheduler = SequentialLR(optimizer, schedulers=[
-                LinearWarmup(optimizer, warmup_epochs=warmup_epochs, warmup_start_lr=1e-6, warmup_end_lr=1e-3),
-                CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=8, eta_min=1e-7)
-                ],
-                milestones=[warmup_epochs]
-            )
+            scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=5, eta_min=1e-7)
+        elif self.scheduler == "steplr":
+            scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
         else:
             scheduler = ExponentialLR(optimizer, gamma=0.98)
         
