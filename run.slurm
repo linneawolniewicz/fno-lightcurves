@@ -11,7 +11,7 @@
 #SBATCH --mem=36gb ## max amount of memory per node you require
 #SBATCH --time=30-00:00:00 ## time format is DD-HH:MM:SS, 3day max on kill-shared, 7day max on exclusive-long, 14day max on sadow, 30day max on koa
 
-#SBATCH --job-name=fno
+#SBATCH --job-name=fno 
 #SBATCH --output=job.out
 #SBATCH --output=logs/slurm_output/job-%A.out
 #SBATCH --mail-type=START,END,FAIL
