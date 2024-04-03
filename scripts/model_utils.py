@@ -109,8 +109,8 @@ class FNOClassifier(LightningModule):
             out_channels = channels[i]
 
             setattr(self, f"fno_layer_{i}", nn.Sequential(
-                SpectralConv1d(in_channels, out_channels, modes),
-                # neuralop.layers.spectral_convolution.SpectralConv1d(in_channels, out_channels, modes),
+                # SpectralConv1d(in_channels, out_channels, modes),
+                neuralop.layers.spectral_convolution.SpectralConv1d(in_channels, out_channels, modes),
                 nn.BatchNorm1d(out_channels)
             ))
         
@@ -233,13 +233,13 @@ class FNOClassifier(LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         if self.scheduler == "reducelronplateau":
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.2, patience=20, min_lr=1e-7)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=100, min_lr=1e-6, cooldown=50)
         elif self.scheduler == "cosineannealinglr":
             scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
         elif self.scheduler == "cosineannealingwarmrestarts":
             scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=5, eta_min=1e-7)
         elif self.scheduler == "steplr":
-            scheduler = StepLR(optimizer, step_size=100, gamma=0.5)
+            scheduler = StepLR(optimizer, step_size=1000, gamma=0.5)
         else:
             scheduler = ExponentialLR(optimizer, gamma=0.98)
         

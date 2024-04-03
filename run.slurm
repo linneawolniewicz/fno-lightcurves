@@ -29,4 +29,4 @@ source activate fno
 
 # Another command to create a .py script, then run that from a ipynb:
 # jupyter nbconvert fno_signal_classification.ipynb --to python
-python fno_signal_classification.py
+python scripts/fno_signal_classification.py
