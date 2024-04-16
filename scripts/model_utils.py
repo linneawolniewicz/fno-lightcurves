@@ -119,7 +119,7 @@ class FNOClassifier(LightningModule):
 
         # Fully connected layer for final classification
         self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-        self.fc.weight.data.fill_(float(0.5))
+        # self.fc.weight.data.fill_(float(0.5))
 
         # Pooling layer
         if pool_type == "max":
@@ -153,7 +153,7 @@ class FNOClassifier(LightningModule):
 
         # Pool
         x = self.pool(x)
-        x = x.view(x.size(0), -1)
+        x = x.view(x.size(0), -1) # Flatten
         
         # Sigmoid activation
         x = F.sigmoid(x)
@@ -161,7 +161,6 @@ class FNOClassifier(LightningModule):
 
         return x    
 
-    # TODO: Add regularization
     def training_step(self, batch, batch_idx):
         x, y = batch
         preds = self.forward(x)
