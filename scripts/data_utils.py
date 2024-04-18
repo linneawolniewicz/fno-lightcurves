@@ -29,14 +29,16 @@ def preprocess_signal(signal):
     # Normalize the signal
     signal = (signal - GLOBAL_MIN) / (GLOBAL_MAX - GLOBAL_MIN)
 
+    # TODO: Analyze how this is different from before:
+    # x -= x[:, :, 0].reshape(-1, 1, 1)
     # Canonicalize the data (pass through 0 at the origin)
-    signal -= signal[:, 0].reshape(1, 1)
+    # signal -= signal[:, 0].reshape(1, 1)
 
     return signal
 
 # Create a SignalDataset
 class SignalDataset(Dataset):
-    def __init__(self, generate=True, idx_range=[0, 1000], seq_length=100, transform=None, data_seed=42):
+    def __init__(self, generate=True, idx_range=[0, 1000], seq_length=100, transform=None, data_seed=None):
         self.generate = generate
         self.idx_range = idx_range
         self.num_samples = idx_range[1] - idx_range[0]
@@ -50,7 +52,7 @@ class SignalDataset(Dataset):
             for i in range(self.num_samples):
                 # If we are over halfway through num_samples, set label = 1
                 if i < int(self.num_samples/2): 
-                    label = 0 
+                    label = 0
                 else: 
                     label = 1
 
