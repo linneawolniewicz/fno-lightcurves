@@ -86,7 +86,7 @@ class FNOClassifier(LightningModule):
         self.proj_dim = proj_dim
         self.loss = nn.BCELoss()
         self.add_noise = add_noise
-        self.example_input_array = torch.rand(32, 1, seq_length)
+        self.example_input_array = torch.rand(1, 1, seq_length)
 
         # Projection layer
         self.project = nn.Sequential(
@@ -113,19 +113,19 @@ class FNOClassifier(LightningModule):
                 neuralop.layers.spectral_convolution.SpectralConv1d(in_channels, out_channels, modes),
                 nn.BatchNorm1d(out_channels)
             ))
-        
-        # Pooling layer
-        if pool_type == "max":
-            self.pool = nn.MaxPool1d(pooling)
-        else:
-            self.pool = nn.AvgPool1d(pooling)
 
         # Dropout layer
         self.dropout = nn.Dropout(p_dropout)
 
         # Fully connected layer for final classification
-        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
-        self.fc.weight.data.fill_(float(0.5))
+        self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
+        # self.fc.weight.data.fill_(float(0.5))
+
+        # Pooling layer
+        if pool_type == "max":
+            self.pool = nn.MaxPool1d(pooling)
+        else:
+            self.pool = nn.AvgPool1d(pooling)
 
 
     def forward(self, x):
@@ -139,21 +139,22 @@ class FNOClassifier(LightningModule):
         for i in range(self.num_channels):
             x = getattr(self, f"fno_layer_{i}")(x)
             x = F.relu(x)
-
-        # Pool
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
-
-        # Add noise
-        if self.add_noise:
-            noise = torch.randn_like(x)
-            x = x + noise
+        x = x.view(x.size(0), -1) # Flatten
 
         # Dropout
         x = self.dropout(x)
 
         # Final classification layer
         x = self.fc(x)
+
+        # Add noise
+        if self.add_noise:
+            noise = torch.randn_like(x)
+            x = x + noise
+
+        # Pool
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
         
         # Sigmoid activation
         x = F.sigmoid(x)
