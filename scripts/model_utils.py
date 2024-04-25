@@ -119,7 +119,7 @@ class FNOClassifier(LightningModule):
 
         # Fully connected layer for final classification
         self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-        # self.fc.weight.data.fill_(float(0.5))
+        self.fc.weight.data.fill_(float(0.5))
 
         # Pooling layer
         if pool_type == "max":
