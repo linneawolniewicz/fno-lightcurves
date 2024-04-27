@@ -25,7 +25,7 @@ class RandomSample(object):
         return sample[:, keep_indices]
 
 # Create a transform function that will randomly translate the data in time (leaving edges at 0)
-class RandomTimeTranslateFill0(object):
+class RandomTimeTranslateFill05(object):
     def __init__(self, max_shift=100):
         self.max_shift = max_shift
 
@@ -34,7 +34,7 @@ class RandomTimeTranslateFill0(object):
         if shift == 0:
             return sample
         
-        result = np.zeros_like(sample)
+        result = np.zeros_like(sample) + 0.5
         if shift > 0:
             result[:, shift:] = sample[:, :-shift]
         elif shift < 0:
@@ -50,14 +50,14 @@ class RandomTimeTranslateReflect(object):
         shift = np.random.randint(-self.max_shift, self.max_shift)
         if shift == 0:
             return sample
-        
+
         result = np.zeros_like(sample)
         if shift > 0:
             result[:, shift:] = sample[:, :-shift]
-            result[:, :shift] = sample[:, :shift][::-1]
+            result[:, :shift] = sample[:, :shift][::-1] # TODO: Getting a "step must be greater than zero" error here
         elif shift < 0:
             result[:, :shift] = sample[:, -shift:]
-            result[:, shift:] = sample[:, shift:][::-1]
+            result[:, shift:] = sample[:, shift:][::-1] # TODO: Getting a "step must be greater than zero" error here
         return result
     
 # Create a transform function that will randomly add gaussian noise to the data

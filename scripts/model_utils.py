@@ -117,16 +117,19 @@ class FNOClassifier(LightningModule):
         # Dropout layer
         self.dropout = nn.Dropout(p_dropout)
 
+        # TODO: change this back
         # Fully connected layer for final classification
-        self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-        self.fc.weight.data.fill_(float(0.5))
+        # self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
+        # self.fc.weight.data.fill_(float(0.5))
+
+        self.fc_post_dropout = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        self.fc_post_dropout.weight.data.fill_(float(0.5))
 
         # Pooling layer
         if pool_type == "max":
             self.pool = nn.MaxPool1d(pooling)
         else:
             self.pool = nn.AvgPool1d(pooling)
-
 
     def forward(self, x):
         # Project
@@ -139,22 +142,33 @@ class FNOClassifier(LightningModule):
         for i in range(self.num_channels):
             x = getattr(self, f"fno_layer_{i}")(x)
             x = F.relu(x)
-        x = x.view(x.size(0), -1) # Flatten
+        # x = x.view(x.size(0), -1) # Flatten
 
         # Dropout
-        x = self.dropout(x)
+        # x = self.dropout(x)
 
         # Final classification layer
-        x = self.fc(x)
+        # x = self.fc(x)
+
+        # Add noise
+        # if self.add_noise:
+        #     noise = torch.randn_like(x)
+        #     x = x + noise
+
+        # Pool
+        x = self.pool(x)
+        x = x.view(x.size(0), -1) # Flatten
 
         # Add noise
         if self.add_noise:
             noise = torch.randn_like(x)
             x = x + noise
 
-        # Pool
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
+        # Dropout
+        x = self.dropout(x)
+
+        # Final classification layer
+        x = self.fc_post_dropout(x)
         
         # Sigmoid activation
         x = F.sigmoid(x)
@@ -234,7 +248,7 @@ class FNOClassifier(LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         if self.scheduler == "reducelronplateau":
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=100, min_lr=1e-6, cooldown=50)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=50, min_lr=1e-6, cooldown=50)
         elif self.scheduler == "cosineannealinglr":
             scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
         elif self.scheduler == "cosineannealingwarmrestarts":
