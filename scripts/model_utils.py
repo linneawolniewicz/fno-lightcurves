@@ -89,12 +89,9 @@ class FNOClassifier(LightningModule):
         self.example_input_array = torch.rand(1, 1, seq_length)
 
         # Projection layer
-        self.project = nn.Sequential(
-            nn.Linear(seq_length, proj_dim * seq_length),
-            nn.Dropout(p_dropout)
-        )
-        
-        # Initialize the linear layer with Xavier normal initialization
+        self.project = nn.Linear(seq_length, proj_dim * seq_length)
+
+        # Initialize the linear layers with Xavier normal initialization
         for module in self.project.modules():
             if isinstance(module, nn.Linear):
                 nn.init.xavier_normal_(module.weight)
@@ -117,13 +114,10 @@ class FNOClassifier(LightningModule):
         # Dropout layer
         self.dropout = nn.Dropout(p_dropout)
 
-        # TODO: change this back
         # Fully connected layer for final classification
         # self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-        # self.fc.weight.data.fill_(float(0.5))
-
-        self.fc_post_dropout = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
-        self.fc_post_dropout.weight.data.fill_(float(0.5))
+        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        self.fc.weight.data.fill_(float(0.5))
 
         # Pooling layer
         if pool_type == "max":
@@ -144,13 +138,13 @@ class FNOClassifier(LightningModule):
             x = F.relu(x)
         # x = x.view(x.size(0), -1) # Flatten
 
-        # Dropout
+        # # Dropout
         # x = self.dropout(x)
 
-        # Final classification layer
+        # # Final classification layer
         # x = self.fc(x)
 
-        # Add noise
+        # # Add noise
         # if self.add_noise:
         #     noise = torch.randn_like(x)
         #     x = x + noise
@@ -168,8 +162,8 @@ class FNOClassifier(LightningModule):
         x = self.dropout(x)
 
         # Final classification layer
-        x = self.fc_post_dropout(x)
-        
+        x = self.fc(x)
+
         # Sigmoid activation
         x = F.sigmoid(x)
         x = x.squeeze(1)
