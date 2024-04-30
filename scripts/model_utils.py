@@ -76,7 +76,8 @@ class FNOClassifier(LightningModule):
                  proj_dim=128,
                  p_dropout=0,
                  add_noise=False,
-                 num_classes = 2
+                 num_classes = 2,
+                 fc_post_pooling=False
         ):
         super().__init__()
 
@@ -93,6 +94,7 @@ class FNOClassifier(LightningModule):
             self.loss = nn.CrossEntropyLoss()
         self.add_noise = add_noise
         self.example_input_array = torch.rand(1, 1, seq_length)
+        self.fc_post_pooling = fc_post_pooling
 
         # Projection layer
         self.project = nn.Linear(seq_length, proj_dim * seq_length)
@@ -121,12 +123,13 @@ class FNOClassifier(LightningModule):
         self.dropout = nn.Dropout(p_dropout)
 
         # Fully connected layer for final classification
-        if num_classes == 2:
-            self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-            # self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        if num_classes == 2: output_dim = 1
+        else: output_dim = num_classes
+
+        if fc_post_pooling:
+            self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), output_dim) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
         else:
-            self.fc = nn.Linear(channels[-1] * seq_length, int(num_classes*seq_length)) # converts from input number of channels to one channel
-            # self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), num_classes) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+            self.fc = nn.Linear(channels[-1] * seq_length, int(seq_length*output_dim)) # converts from input number of channels to one channel
         
         self.fc.weight.data.fill_(float(0.5))
 
@@ -147,33 +150,38 @@ class FNOClassifier(LightningModule):
         for i in range(self.num_channels):
             x = getattr(self, f"fno_layer_{i}")(x)
             x = F.relu(x)
-        x = x.view(x.size(0), -1) # Flatten
-
-        # Dropout
-        x = self.dropout(x)
-
+        
         # Final classification layer
-        x = self.fc(x)
+        if not self.fc_post_pooling:
+            x = x.view(x.size(0), -1) # Flatten
 
-        # Add noise
-        if self.add_noise:
-            noise = torch.randn_like(x)
-            x = x + noise
+            # Add noise
+            if self.add_noise:
+                noise = torch.randn_like(x)
+                x = x + noise
+
+            # Dropout
+            x = self.dropout(x)
+
+            # Final classification layer
+            x = self.fc(x)
 
         # Pool
         x = self.pool(x)
         x = x.view(x.size(0), -1) # Flatten
 
-        # # Add noise
-        # if self.add_noise:
-        #     noise = torch.randn_like(x)
-        #     x = x + noise
+        # Final classification layer
+        if self.fc_post_pooling:
+            # Add noise
+            if self.add_noise:
+                noise = torch.randn_like(x)
+                x = x + noise
 
-        # # Dropout
-        # x = self.dropout(x)
+            # Dropout
+            x = self.dropout(x)
 
-        # # Final classification layer
-        # x = self.fc(x)
+            # Final classification layer
+            x = self.fc(x)
 
         if self.num_classes == 2:
             # Sigmoid activation
