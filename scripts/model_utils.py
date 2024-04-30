@@ -3,6 +3,7 @@ from lightning import LightningModule
 import math
 import torch
 import neuralop
+import numpy as np
 from torch.optim.lr_scheduler import StepLR, ReduceLROnPlateau, CosineAnnealingLR, ExponentialLR, CosineAnnealingWarmRestarts
 import torch.nn as nn
 import torch.nn.functional as F
@@ -74,7 +75,8 @@ class FNOClassifier(LightningModule):
                  seq_length=500,
                  proj_dim=128,
                  p_dropout=0,
-                 add_noise=False
+                 add_noise=False,
+                 num_classes = 2
         ):
         super().__init__()
 
@@ -84,7 +86,11 @@ class FNOClassifier(LightningModule):
         self.momentum = momentum
         self.num_channels = len(channels)
         self.proj_dim = proj_dim
-        self.loss = nn.BCELoss()
+        self.num_classes = num_classes
+        if num_classes == 2:
+            self.loss = nn.BCELoss()
+        else:
+            self.loss = nn.CrossEntropyLoss()
         self.add_noise = add_noise
         self.example_input_array = torch.rand(1, 1, seq_length)
 
@@ -115,8 +121,13 @@ class FNOClassifier(LightningModule):
         self.dropout = nn.Dropout(p_dropout)
 
         # Fully connected layer for final classification
-        # self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
-        self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        if num_classes == 2:
+            self.fc = nn.Linear(channels[-1] * seq_length, seq_length) # converts from input number of channels to one channel
+            # self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), 1) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        else:
+            self.fc = nn.Linear(channels[-1] * seq_length, int(num_classes*seq_length)) # converts from input number of channels to one channel
+            # self.fc = nn.Linear(channels[-1] * int((seq_length/pooling)), num_classes) # output number of channels of final fno_block * (3rd input dimension / maxpool size)
+        
         self.fc.weight.data.fill_(float(0.5))
 
         # Pooling layer
@@ -136,27 +147,7 @@ class FNOClassifier(LightningModule):
         for i in range(self.num_channels):
             x = getattr(self, f"fno_layer_{i}")(x)
             x = F.relu(x)
-        # x = x.view(x.size(0), -1) # Flatten
-
-        # # Dropout
-        # x = self.dropout(x)
-
-        # # Final classification layer
-        # x = self.fc(x)
-
-        # # Add noise
-        # if self.add_noise:
-        #     noise = torch.randn_like(x)
-        #     x = x + noise
-
-        # Pool
-        x = self.pool(x)
         x = x.view(x.size(0), -1) # Flatten
-
-        # Add noise
-        if self.add_noise:
-            noise = torch.randn_like(x)
-            x = x + noise
 
         # Dropout
         x = self.dropout(x)
@@ -164,9 +155,33 @@ class FNOClassifier(LightningModule):
         # Final classification layer
         x = self.fc(x)
 
-        # Sigmoid activation
-        x = F.sigmoid(x)
-        x = x.squeeze(1)
+        # Add noise
+        if self.add_noise:
+            noise = torch.randn_like(x)
+            x = x + noise
+
+        # Pool
+        x = self.pool(x)
+        x = x.view(x.size(0), -1) # Flatten
+
+        # # Add noise
+        # if self.add_noise:
+        #     noise = torch.randn_like(x)
+        #     x = x + noise
+
+        # # Dropout
+        # x = self.dropout(x)
+
+        # # Final classification layer
+        # x = self.fc(x)
+
+        if self.num_classes == 2:
+            # Sigmoid activation
+            x = F.sigmoid(x)
+            x = x.squeeze(1)
+        else:
+            # Softmax activation
+            x = F.softmax(x, dim=1)
 
         return x    
 
@@ -179,8 +194,13 @@ class FNOClassifier(LightningModule):
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # Log the accuracy
-        binary_preds = (preds > 0.5).float()
-        acc = (binary_preds == y).float().mean()
+        if self.num_classes == 2:
+            binary_preds = (preds > 0.5).float()
+            acc = (binary_preds == y).float().mean()
+        else:
+            pred_idx = torch.argmax(preds, axis=1)
+            target_idx = torch.argmax(y, axis=1)
+            acc = torch.eq(pred_idx, target_idx).float().mean()
         self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True)
 
         # collapse flag 
@@ -204,8 +224,13 @@ class FNOClassifier(LightningModule):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         
         # Log the accuracy
-        binary_preds = (preds > 0.5).float()
-        acc = (binary_preds == y).float().mean()
+        if self.num_classes == 2:
+            binary_preds = (preds > 0.5).float()
+            acc = (binary_preds == y).float().mean()
+        else:
+            pred_idx = torch.argmax(preds, axis=1)
+            target_idx = torch.argmax(y, axis=1)
+            acc = torch.eq(pred_idx, target_idx).float().mean()
         self.log("val_acc", acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # collapse flag 
@@ -229,8 +254,13 @@ class FNOClassifier(LightningModule):
         self.log("test_loss", loss)
 
         # Log the accuracy
-        binary_preds = (preds > 0.5).float()
-        acc = (binary_preds == y).float().mean()
+        if self.num_classes == 2:
+            binary_preds = (preds > 0.5).float()
+            acc = (binary_preds == y).float().mean()
+        else:
+            pred_idx = torch.argmax(preds, axis=1)
+            target_idx = torch.argmax(y, axis=1)
+            acc = torch.eq(pred_idx, target_idx).float().mean()
         self.log("test_acc", acc)
 
         return loss
@@ -252,4 +282,4 @@ class FNOClassifier(LightningModule):
         else:
             scheduler = ExponentialLR(optimizer, gamma=0.98)
         
-        return [optimizer], [{"scheduler": scheduler, "monitor": "train_loss"}]
+        return [optimizer], [{"scheduler": scheduler, "monitor": "val_loss"}]
