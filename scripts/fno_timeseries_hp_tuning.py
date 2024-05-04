@@ -12,6 +12,7 @@ import optuna
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from numpy.random import seed, shuffle
 from sklearn.metrics import roc_curve, auc
 
 import torch
@@ -55,8 +56,8 @@ def get_data(batch_size=32, data_augmentation=None):
 
         # Create a list of indices for your dataset
         indices = list(range(len(X)))
-        np.random.seed(1)
-        np.random.shuffle(indices)
+        seed(1)
+        shuffle(indices)
 
         # Split the indices into train, val, and test
         train_size = int(0.7 * len(X))
@@ -200,11 +201,11 @@ def get_data(batch_size=32, data_augmentation=None):
 
 def objective(trial: optuna.trial.Trial) -> float:
         # Generate the dataloaders
+        batch_size = 32
+        data_augmentation = None
         train_loader, valid_loader, test_loader, seq_length = get_data(batch_size=batch_size, data_augmentation=data_augmentation)
 
         # Hyperparameters
-        batch_size = 32
-        data_augmentation = None
         modes = trial.suggest_int("modes", 5, 50)
         num_layers = trial.suggest_int("num_layers", 1, 8)
         num_channels = trial.suggest_int("num_channels", 32, 1024)
