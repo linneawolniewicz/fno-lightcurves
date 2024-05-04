@@ -74,7 +74,7 @@ class FNOClassifier(LightningModule):
                  pool_type="max",
                  seq_length=500,
                  proj_dim=128,
-                 p_dropout=0,
+                 p_dropout=0.,
                  add_noise=False,
                  num_classes = 2,
                  fc_post_pooling=False
@@ -116,7 +116,7 @@ class FNOClassifier(LightningModule):
             setattr(self, f"fno_layer_{i}", nn.Sequential(
                 # SpectralConv1d(in_channels, out_channels, modes),
                 neuralop.layers.spectral_convolution.SpectralConv1d(in_channels, out_channels, modes),
-                nn.BatchNorm1d(out_channels)
+                # nn.BatchNorm1d(out_channels)
             ))
 
         # Dropout layer
@@ -174,7 +174,7 @@ class FNOClassifier(LightningModule):
         if self.fc_post_pooling:
             # Add noise
             if self.add_noise:
-                noise = torch.randn_like(x)
+                noise = torch.randn_like(x)/2
                 x = x + noise
 
             # Dropout
@@ -187,9 +187,6 @@ class FNOClassifier(LightningModule):
             # Sigmoid activation
             x = F.sigmoid(x)
             x = x.squeeze(1)
-        else:
-            # Softmax activation
-            x = F.softmax(x, dim=1)
 
         return x    
 
@@ -198,7 +195,9 @@ class FNOClassifier(LightningModule):
         preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(preds, y.float()) # No need for softmax, as it is included in nn.CrossEntropyLoss
+        # Note: No need for softmax, as it is included in nn.CrossEntropyLoss
+        # Also nn.CrossEntropyLoss expects the input to be of shape (N, C) and the target to be of shape (N) and target indices (not one-hot encoded)
+        loss = self.loss(preds, y)
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
 
         # Log the accuracy
@@ -206,20 +205,22 @@ class FNOClassifier(LightningModule):
             binary_preds = (preds > 0.5).float()
             acc = (binary_preds == y).float().mean()
         else:
-            pred_idx = torch.argmax(preds, axis=1)
-            target_idx = torch.argmax(y, axis=1)
-            acc = torch.eq(pred_idx, target_idx).float().mean()
-        self.log("train_acc", acc, on_step=True, on_epoch=True, prog_bar=True)
+            preds = F.softmax(preds, dim=1)
+            _, predicted = torch.max(preds, 1)
+            correct = (predicted == y).sum().item()
+            total = y.size(0)
+            acc = correct / total
+        self.log("train_acc", acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # collapse flag 
         collapse_flg = torch.unique(preds).size(dim=0)
         self.log("collapse_flg_train", collapse_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
 
         # mean, median, and mode flag
-        mean_flg = preds.mean().item()
-        std_flag = preds.std().item()
-        self.log("mean_flg_train", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("std_flag_train", std_flag, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+        # mean_flg = preds.mean().item()
+        # std_flag = preds.std().item()
+        # self.log("mean_flg_train", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+        # self.log("std_flag_train", std_flag, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
 
         return loss
     
@@ -228,7 +229,7 @@ class FNOClassifier(LightningModule):
         preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(preds, y.float())
+        loss = self.loss(preds, y)
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         
         # Log the accuracy
@@ -236,9 +237,11 @@ class FNOClassifier(LightningModule):
             binary_preds = (preds > 0.5).float()
             acc = (binary_preds == y).float().mean()
         else:
-            pred_idx = torch.argmax(preds, axis=1)
-            target_idx = torch.argmax(y, axis=1)
-            acc = torch.eq(pred_idx, target_idx).float().mean()
+            preds = F.softmax(preds, dim=1)
+            _, predicted = torch.max(preds, 1)
+            correct = (predicted == y).sum().item()
+            total = y.size(0)
+            acc = correct / total
         self.log("val_acc", acc, on_step=False, on_epoch=True, prog_bar=True)
 
         # collapse flag 
@@ -246,10 +249,10 @@ class FNOClassifier(LightningModule):
         self.log("collapse_flg_val", collapse_flg, sync_dist=True, on_epoch=True, prog_bar=True)
 
         # mean, median, and mode flag
-        mean_flg = preds.mean().item()
-        std_flg = preds.std().item()
-        self.log("mean_flg_val", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("std_flg_val", std_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=True)
+        # mean_flg = preds.mean().item()
+        # std_flg = preds.std().item()
+        # self.log("mean_flg_val", mean_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=False)
+        # self.log("std_flg_val", std_flg, sync_dist=True, on_step=False, on_epoch=True, prog_bar=False)
 
         return loss
     
@@ -258,7 +261,7 @@ class FNOClassifier(LightningModule):
         preds = self.forward(x)
 
         # Log the loss
-        loss = self.loss(preds, y.float())
+        loss = self.loss(preds, y)
         self.log("test_loss", loss)
 
         # Log the accuracy
@@ -266,9 +269,11 @@ class FNOClassifier(LightningModule):
             binary_preds = (preds > 0.5).float()
             acc = (binary_preds == y).float().mean()
         else:
-            pred_idx = torch.argmax(preds, axis=1)
-            target_idx = torch.argmax(y, axis=1)
-            acc = torch.eq(pred_idx, target_idx).float().mean()
+            preds = F.softmax(preds, dim=1)
+            _, predicted = torch.max(preds, 1)
+            correct = (predicted == y).sum().item()
+            total = y.size(0)
+            acc = correct / total
         self.log("test_acc", acc)
 
         return loss
@@ -280,7 +285,7 @@ class FNOClassifier(LightningModule):
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
 
         if self.scheduler == "reducelronplateau":
-            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=50, min_lr=1e-6, cooldown=50)
+            scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.9, patience=20, min_lr=1e-6, cooldown=30)
         elif self.scheduler == "cosineannealinglr":
             scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=1e-7)
         elif self.scheduler == "cosineannealingwarmrestarts":
@@ -290,4 +295,4 @@ class FNOClassifier(LightningModule):
         else:
             scheduler = ExponentialLR(optimizer, gamma=0.98)
         
-        return [optimizer], [{"scheduler": scheduler, "monitor": "val_loss"}]
+        return [optimizer], [{"scheduler": scheduler, "monitor": "train_loss"}]

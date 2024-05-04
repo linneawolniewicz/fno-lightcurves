@@ -7,13 +7,13 @@
 ##SBATCH --nodelist=gpu-0008
 
 #BATCH --gres=gpu:1
-#SBATCH --cpus-per-task=6 ## 5 cores per task
-#SBATCH --mem=36gb ## max amount of memory per node you require
+#SBATCH --cpus-per-task=6 ## # cores per task
+#SBATCH --mem=96gb ## max amount of memory per node you require
 #SBATCH --time=30-00:00:00 ## time format is DD-HH:MM:SS, 3day max on kill-shared, 7day max on exclusive-long, 14day max on sadow, 30day max on koa
 
-#SBATCH --job-name=fno 
+#SBATCH --job-name=fno_hp_tuning
 #SBATCH --output=job.out
-#SBATCH --output=logs/slurm_output/job-%A.out
+#SBATCH --output=../logs/slurm_output/job-%A.out
 #SBATCH --mail-type=START,END,FAIL
 #SBATCH --mail-user=linneamw@hawaii.edu
 
@@ -28,5 +28,5 @@ source activate fno
 # jupyter nbconvert --execute --clear-output fno_1d_classification.ipynb 
 
 # Another command to create a .py script, then run that from a ipynb:
-# jupyter nbconvert fno_signal_classification.ipynb --to python
-python scripts/fno_signal_classification.py
+# jupyter nbconvert fno_timeseries_classification.ipynb --to python
+python fno_timeseries_hp_tuning.py
